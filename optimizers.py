@@ -31,10 +31,8 @@ class SGD(Optimizer):
 
 class SGD_momentum(Optimizer):
     def __init__(self, lr, momentum):
-        self.state = {}
-        self.lr = lr
+        super().__init__(lr)
         self.m = momentum
-        self.t = 0
 
     def _update(self, name:str, p: np.ndarray, g: np.ndarray):
         if name not in self.state:
@@ -42,3 +40,27 @@ class SGD_momentum(Optimizer):
         else:
             self.state[name] = self.m * self.state[name] + g
         p -= self.lr * self.state[name]
+
+class Adam(Optimizer):
+    def __init__(self, lr, beta_1, beta_2, epsilon):
+        super().__init__(lr)
+        self.beta_1 = beta_1
+        self.beta_2 = beta_2
+        self.epsilon = epsilon
+    
+    def _update(self, name:str, p: np.ndarray, g: np.ndarray):
+        if name not in self.state:
+            self.state[name] = {"m": (1 - self.beta_1) * g.copy(), "v": (1 - self.beta_2) * np.square(g.copy())}
+
+        else:
+            self.state[name] = {"m": self.beta_1 * self.state[name]["m"] + (1 - self.beta_1) * g.copy(), "v": self.beta_2 * self.state[name]["v"] + (1 - self.beta_2) * np.square(g.copy())}
+
+        m_hat = self.state[name]["m"]/(1 - self.beta_1**self.t)
+        v_hat = self.state[name]["v"]/(1 - self.beta_2**self.t)
+
+        p -= self.lr * m_hat / (np.sqrt(v_hat) + self.epsilon)
+        
+        
+
+
+
