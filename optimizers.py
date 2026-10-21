@@ -79,3 +79,29 @@ class Adam(Optimizer):
 
         p -= self.lr * m_hat / (sqrt_v_hat + self.epsilon)
 
+
+class AdaGrad(Optimizer):
+    def __init__(self, lr, epsilon):
+        super().__init__(lr)
+        self.epsilon = epsilon
+
+    def _update(self, name:str, p: np.ndarray, g: np.ndarray):
+        if name not in self.state:
+            self.state[name] = np.zeros(p.shape, dtype=p.dtype)
+        
+        self.state[name] += g * g
+        p -= self.lr * g / (np.sqrt(self.state[name]) + self.epsilon)
+
+
+class RMSProp(Optimizer):
+    def __init__(self, lr, alpha, epsilon):
+        super().__init__(lr)
+        self.epsilon = epsilon
+        self.alpha = alpha
+
+    def _update(self, name:str, p: np.ndarray, g: np.ndarray):
+        if name not in self.state:
+            self.state[name] = np.zeros(p.shape, dtype=p.dtype)
+
+        self.state[name] = (self.alpha * self.state[name]) + ((1-self.alpha) * g * g)
+        p -= self.lr * g / (np.sqrt(self.state[name]) + self.epsilon)
