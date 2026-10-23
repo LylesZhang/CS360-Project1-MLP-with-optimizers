@@ -40,7 +40,7 @@ class MLP:
         return A, A_cache, Z_cache
 
     def loss_and_grads(self, params: Params, X: np.ndarray, y: np.ndarray) -> tuple[float, dict]: 
-        y =y.reshape(-1,1)
+        y =np.asarray(y, dtype=self.dtype).reshape(-1,1)
         out, A_cache, Z_cache = self._forward(params, X)
 
         n = X.shape[0]

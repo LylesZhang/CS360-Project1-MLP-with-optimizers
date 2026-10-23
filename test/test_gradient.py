@@ -27,7 +27,7 @@ def test_grad_check(eps=1e-6):
 
         diff = np.linalg.norm(num_grad - grads[i])
         scale = np.linalg.norm(num_grad) + np.linalg.norm(grads[i])
-        assert diff / scale <1e-6
+        assert diff / scale < 1e-6
 
 if __name__ == "__main__":
     test_grad_check()
