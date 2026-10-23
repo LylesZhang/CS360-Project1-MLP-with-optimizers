@@ -1,3 +1,4 @@
+import math
 from abc import ABC, abstractmethod
 import numpy as np
 from interfaces import Params
@@ -12,8 +13,12 @@ class Optimizer(ABC):
     
     def step(self, params: Params, grads: Params) -> None:
         """This updates the Params and change it"""
+        if params.keys() != grads.keys():
+            raise KeyError(f"params and grads have different keys: {sorted(params)} vs {sorted(grads)}")
         self.t += 1
         for name in params:
+            if params[name].shape != grads[name].shape:
+                raise ValueError(f"{name}: param shape {params[name].shape} != grad shape {grads[name].shape}")
             self._update(name, params[name], grads[name])
 
     def reset(self) -> None:
@@ -30,7 +35,7 @@ class SGD(Optimizer):
         p -= self.lr * g
 
 class SGD_momentum(Optimizer):
-    def __init__(self, lr, momentum):
+    def __init__(self, lr, momentum=0.9):
         super().__init__(lr)
         self.m = momentum
 
@@ -42,25 +47,35 @@ class SGD_momentum(Optimizer):
         p -= self.lr * self.state[name]
 
 class Adam(Optimizer):
-    def __init__(self, lr, beta_1, beta_2, epsilon):
+    def __init__(self, lr=1e-3, beta_1=0.9, beta_2=0.999, epsilon=1e-8, bias_correction=True): # These default parameters align with the one from Pytorch
         super().__init__(lr)
         self.beta_1 = beta_1
         self.beta_2 = beta_2
         self.epsilon = epsilon
-    
+        # bias_correction=False with beta_1=0 is exactly RMSProp (alpha=beta_2)
+        self.bias_correction = bias_correction
+
     def _update(self, name:str, p: np.ndarray, g: np.ndarray):
-        if name not in self.state:
-            self.state[name] = {"m": (1 - self.beta_1) * g.copy(), "v": (1 - self.beta_2) * np.square(g.copy())}
+        # g**2 can overflow float32 (|g| > ~1.8e19) during divergence; clamp v to the largest finite value
+        with np.errstate(over="ignore"):
+            g_sq = np.square(g)
 
+            if name not in self.state:
+                self.state[name] = {"m": (1 - self.beta_1) * g, "v": (1 - self.beta_2) * g_sq}
+
+            else:
+                self.state[name] = {"m": self.beta_1 * self.state[name]["m"] + (1 - self.beta_1) * g, "v": self.beta_2 * self.state[name]["v"] + (1 - self.beta_2) * g_sq}
+
+        v = self.state[name]["v"]
+        np.minimum(v, np.finfo(v.dtype).max, out=v)
+
+        if self.bias_correction:
+            m_hat = self.state[name]["m"]/(1 - self.beta_1**self.t)
+            # sqrt(v_hat) computed as sqrt(v)/sqrt(1-beta_2^t) so the division cannot overflow again
+            sqrt_v_hat = np.sqrt(v)/math.sqrt(1 - self.beta_2**self.t)
         else:
-            self.state[name] = {"m": self.beta_1 * self.state[name]["m"] + (1 - self.beta_1) * g.copy(), "v": self.beta_2 * self.state[name]["v"] + (1 - self.beta_2) * np.square(g.copy())}
+            m_hat = self.state[name]["m"]
+            sqrt_v_hat = np.sqrt(v)
 
-        m_hat = self.state[name]["m"]/(1 - self.beta_1**self.t)
-        v_hat = self.state[name]["v"]/(1 - self.beta_2**self.t)
-
-        p -= self.lr * m_hat / (np.sqrt(v_hat) + self.epsilon)
-        
-        
-
-
+        p -= self.lr * m_hat / (sqrt_v_hat + self.epsilon)
 

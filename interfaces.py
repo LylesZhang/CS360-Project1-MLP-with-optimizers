@@ -2,12 +2,12 @@ from typing import Protocol
 
 import numpy as np
 
+# name -> array; grads use the same keys and shapes. Optimizers update params in place.
 Params = dict[str, np.ndarray]
 
-class Optimizer:
-    def __init__(self, lr:float):
-        """Constructor"""    
+class OptimizerAPI(Protocol):
+    """What every optimizer must provide. The implementation base class is optimizers.Optimizer."""
     def step(self, params: Params, grads: Params) -> None:
-        """This updates the Params and change it"""
+        """Update every params[name] in place using grads[name]"""
     def reset(self) -> None:
-        """This emptied the Params"""
+        """Clear all internal state (moments) and the step counter"""
