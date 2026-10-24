@@ -32,7 +32,7 @@ def test_torch_parity():
     loss_t.backward()
 
     np.testing.assert_allclose(m.predict(params, X), out_t.detach().numpy(), rtol=1e-10, atol=1e-12)
-    np.testing.assert_allclose(loss, loss_t.item(), rtol=1e10, atol=1e-12)
+    np.testing.assert_allclose(loss, loss_t.item(), rtol=1e-10, atol=1e-12)
 
     for i in [0, 2, 4]:
         np.testing.assert_allclose(grads[f"W{i//2+1}"], torch_model[i].weight.grad.numpy().T, rtol=1e-10, atol=1e-12)

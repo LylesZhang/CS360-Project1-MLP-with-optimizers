@@ -4,6 +4,11 @@ import numpy as np
 from interfaces import Params
 
 
+def _clamp_to_finite(a: np.ndarray) -> None:
+    """g^2 accumulators can overflow float32 (|g| > ~1.8e19) during divergence; clamp inf to the largest finite value in place"""
+    np.minimum(a, np.finfo(a.dtype).max, out=a)
+
+
 class Optimizer(ABC):
     def __init__(self, lr:float):
         """Constructor"""
@@ -56,7 +61,6 @@ class Adam(Optimizer):
         self.bias_correction = bias_correction
 
     def _update(self, name:str, p: np.ndarray, g: np.ndarray):
-        # g**2 can overflow float32 (|g| > ~1.8e19) during divergence; clamp v to the largest finite value
         with np.errstate(over="ignore"):
             g_sq = np.square(g)
 
@@ -67,7 +71,7 @@ class Adam(Optimizer):
                 self.state[name] = {"m": self.beta_1 * self.state[name]["m"] + (1 - self.beta_1) * g, "v": self.beta_2 * self.state[name]["v"] + (1 - self.beta_2) * g_sq}
 
         v = self.state[name]["v"]
-        np.minimum(v, np.finfo(v.dtype).max, out=v)
+        _clamp_to_finite(v)
 
         if self.bias_correction:
             m_hat = self.state[name]["m"]/(1 - self.beta_1**self.t)
@@ -81,15 +85,18 @@ class Adam(Optimizer):
 
 
 class AdaGrad(Optimizer):
-    def __init__(self, lr=1e-3, epsilon=1e-8:
+    def __init__(self, lr=1e-3, epsilon=1e-8):
         super().__init__(lr)
         self.epsilon = epsilon
 
     def _update(self, name:str, p: np.ndarray, g: np.ndarray):
         if name not in self.state:
             self.state[name] = np.zeros(p.shape, dtype=p.dtype)
-        
-        self.state[name] += g * g
+
+        with np.errstate(over="ignore"):
+            self.state[name] += np.square(g)
+        # the sum never decays: without the clamp one inf would freeze this parameter forever
+        _clamp_to_finite(self.state[name])
         p -= self.lr * g / (np.sqrt(self.state[name]) + self.epsilon)
 
 
@@ -103,5 +110,7 @@ class RMSProp(Optimizer):
         if name not in self.state:
             self.state[name] = np.zeros(p.shape, dtype=p.dtype)
 
-        self.state[name] = (self.alpha * self.state[name]) + ((1-self.alpha) * g * g)
+        with np.errstate(over="ignore"):
+            self.state[name] = (self.alpha * self.state[name]) + ((1-self.alpha) * np.square(g))
+        _clamp_to_finite(self.state[name])
         p -= self.lr * g / (np.sqrt(self.state[name]) + self.epsilon)
