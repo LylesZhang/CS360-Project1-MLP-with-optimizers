@@ -82,12 +82,7 @@ def training_run(d, optimizer_name, lr, seed, n_epochs, standardized=True, log_d
     log_dir = Path(log_dir)
     log_dir.mkdir(parents=True, exist_ok=True)
 
-    if standardized:
-        data_state = "std"
-    else:
-        data_state = "raw"
-
-    run_id = f"{data_state}_{optimizer_name}_lr{lr}_seed{seed}"
+    run_id = make_run_id(optimizer_name, lr, seed, standardized)  
 
     with open(log_dir/f"{run_id}.csv","w", newline="") as csvfile:
         writer =csv.DictWriter(csvfile, fieldnames=RUN_COLUMNS)
@@ -120,6 +115,13 @@ def training_run(d, optimizer_name, lr, seed, n_epochs, standardized=True, log_d
         np.savez(log_dir/f"{run_id}.npz", **best_params)
 
     return summary, best_params
+
+def make_run_id(optimizer_name, lr, seed, standardized):
+    if standardized:
+        data_state = "standardized"
+    else:
+        data_state = "raw"
+    return f"{data_state}_{optimizer_name}_lr{lr}_seed{seed}"
 
 if __name__ == "__main__":
     d = prepare_data(seed=0, standardize=True)
