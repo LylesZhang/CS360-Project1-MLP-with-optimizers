@@ -85,7 +85,7 @@ class Adam(Optimizer):
 
 
 class AdaGrad(Optimizer):
-    def __init__(self, lr=1e-3, epsilon=1e-8):
+    def __init__(self, lr=1e-3, epsilon=1e-10):
         super().__init__(lr)
         self.epsilon = epsilon
 

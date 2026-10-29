@@ -1,9 +1,12 @@
 import numpy as np
 
-def rmse(pred: np.ndarray, y: np.ndarray):
+def mse(pred: np.ndarray, y: np.ndarray):
     pred = pred.reshape(-1)
     y = y.reshape(-1)
-    return np.sqrt(np.mean((pred - y) ** 2))
+    return np.mean((pred - y) ** 2)
+
+def rmse(pred: np.ndarray, y: np.ndarray):
+    return np.sqrt(mse(pred,y))
 
 def mae(pred: np.ndarray, y: np.ndarray):
     pred = pred.reshape(-1)
