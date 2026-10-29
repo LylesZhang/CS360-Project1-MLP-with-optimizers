@@ -5,10 +5,27 @@ import numpy as np
 from data import prepare_data
 from train import LOG_DIR, OPTIMIZERS, training_run
 
-SWEEP_DIR = LOG_DIR / "lr_sweep"
+STANDARDIZED = True
+SWEEP_DIR = LOG_DIR / ("sweep_std" if STANDARDIZED else "sweep_raw")
+
+OPTIMIZER_NAMES = list(OPTIMIZERS)          # full sweep: all five
+# OPTIMIZER_NAMES = ["sgd", "adagrad"]      # pilot
+
 LRS = [1e-4, 3e-4, 1e-3, 3e-3, 1e-2, 3e-2, 1e-1, 3e-1, 1.0]
+# finals: each optimizer runs only at its own winning learning rate instead of every value in LRS
+FINAL_LRS = None
+# FINAL_LRS = {"sgd": 0.01, "momentum": 0.01, "adam": 0.01, "rmsprop": 0.01, "adagrad": 0.1}
+
 SEEDS = [0, 1, 2, 3, 4]
 N_EPOCHS = 20
+# False: skip training and only re-analyze the summary_rows.csv already in SWEEP_DIR
+RUN_TRAINING = True
+
+
+def lrs_for(name):
+    if FINAL_LRS is None:
+        return LRS
+    return [FINAL_LRS[name]]
 
 
 def constant_baseline_loss(d):
@@ -21,30 +38,40 @@ def run_sweep(d):
     SWEEP_DIR.mkdir(parents=True, exist_ok=True)
     (SWEEP_DIR / "summary_rows.csv").unlink(missing_ok=True)
 
-    summaries = []
-    for name in OPTIMIZERS:
+    for name in OPTIMIZER_NAMES:
         print(f"running {name}")
-        for lr in LRS:
+        for lr in lrs_for(name):
             for seed in SEEDS:
                 # large learning rates are expected to overflow, training_run already records that as diverged
                 with np.errstate(all="ignore"):
-                    summary, _ = training_run(d, name, lr, seed, N_EPOCHS, log_dir=SWEEP_DIR)
-                summaries.append(summary)
+                    training_run(d, name, lr, seed, N_EPOCHS, standardized=STANDARDIZED, log_dir=SWEEP_DIR)
+
+
+def load_summaries():
+    # csv gives everything back as text, so convert the columns the analysis compares
+    with open(SWEEP_DIR / "summary_rows.csv") as f:
+        summaries = list(csv.DictReader(f))
+    for s in summaries:
+        s["lr"] = float(s["lr"])
+        s["best_val_loss"] = float(s["best_val_loss"])
+        s["diverged"] = s["diverged"] == "True"
     return summaries
 
 
 def summarize(summaries, baseline):
     rows = []
-    for name in OPTIMIZERS:
-        for lr in LRS:
+    for name in OPTIMIZER_NAMES:
+        for lr in lrs_for(name):
             runs = [s for s in summaries if s["optimizer"] == name and s["lr"] == lr]
             losses = np.array([s["best_val_loss"] for s in runs])
-            # diverged only catches nan/inf, so a finite loss no better than a constant counts as a failure too
-            n_failed = sum(s["diverged"] or s["best_val_loss"] >= baseline for s in runs)
+            # diverged: the loss became nan/inf
+            n_diverged = sum(s["diverged"] for s in runs)
+            # no better: the loss stayed finite but never beat a constant, e.g. dead ReLUs or a learning rate too small to learn in time
+            n_no_better = sum(not s["diverged"] and s["best_val_loss"] >= baseline for s in runs)
             # a seed that diverged before its first validation has best_val_loss = inf, which makes std nan
             with np.errstate(invalid="ignore"):
                 std = losses.std()
-            rows.append({"optimizer": name, "lr": lr, "mean_val_loss": losses.mean(), "std_val_loss": std, "n_failed": n_failed})
+            rows.append({"optimizer": name, "lr": lr, "mean_val_loss": losses.mean(), "std_val_loss": std, "n_diverged": n_diverged, "n_no_better": n_no_better})
     return rows
 
 
@@ -52,7 +79,7 @@ def pick_best_lrs(rows):
     # lowest mean val loss among learning rates where every seed trained successfully
     best = {}
     for row in rows:
-        if row["n_failed"] > 0:
+        if row["n_diverged"] + row["n_no_better"] > 0:
             continue
         name = row["optimizer"]
         if name not in best or row["mean_val_loss"] < best[name]["mean_val_loss"]:
@@ -62,13 +89,13 @@ def pick_best_lrs(rows):
 
 def print_report(rows, best, baseline):
     print(f"\nconstant baseline val MSE: {baseline:.4f}")
-    for name in OPTIMIZERS:
+    for name in OPTIMIZER_NAMES:
         print(f"\n{name}")
         for row in rows:
             if row["optimizer"] != name:
                 continue
             mark = "  <- best" if best.get(name) is row else ""
-            print(f"  lr={row['lr']:<7g} val MSE {row['mean_val_loss']:.4g} ± {row['std_val_loss']:.2g}  failed {row['n_failed']}/{len(SEEDS)}{mark}")
+            print(f"  lr={row['lr']:<7g} val MSE {row['mean_val_loss']:.4g} ± {row['std_val_loss']:.2g}  diverged {row['n_diverged']}/{len(SEEDS)}  no better {row['n_no_better']}/{len(SEEDS)}{mark}")
         if name not in best:
             print("  every learning rate failed on at least one seed")
         elif best[name]["lr"] in (LRS[0], LRS[-1]):
@@ -83,10 +110,12 @@ def write_csv(path, rows):
 
 
 if __name__ == "__main__":
-    d = prepare_data(seed=0, standardize=True)
+    d = prepare_data(seed=0, standardize=STANDARDIZED)
     baseline = constant_baseline_loss(d)
 
-    summaries = run_sweep(d)
+    if RUN_TRAINING:
+        run_sweep(d)
+    summaries = load_summaries()
     rows = summarize(summaries, baseline)
     best = pick_best_lrs(rows)
 
