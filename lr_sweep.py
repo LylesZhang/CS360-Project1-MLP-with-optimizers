@@ -7,21 +7,21 @@ from train import LOG_DIR, OPTIMIZERS, training_run
 
 
 
-PHASE = "pilot"
+PHASE = "final"
 
-STANDARDIZED = True
+STANDARDIZED = False
 SWEEP_DIR = LOG_DIR / f"{PHASE}_{"std" if STANDARDIZED else "raw"}"
 
 #OPTIMIZER_NAMES = list(OPTIMIZERS)          # full sweep: all five
-OPTIMIZER_NAMES = ["sgd", "adagrad"]      # pilot
+OPTIMIZER_NAMES = ["adam", "rmsprop", "adagrad"]      # pilot
 
 LRS = [1e-4, 3e-4, 1e-3, 3e-3, 1e-2, 3e-2, 1e-1, 3e-1, 1.0]
 # finals: each optimizer runs only at its own winning learning rate instead of every value in LRS
-FINAL_LRS = None
-# FINAL_LRS = {"sgd": 0.01, "momentum": 0.01, "adam": 0.01, "rmsprop": 0.01, "adagrad": 0.1}
+#FINAL_LRS = None
+FINAL_LRS = {"adam": 0.01, "rmsprop": 0.003, "adagrad": 0.03}
 
-SEEDS = [0]
-N_EPOCHS = 200
+SEEDS = [5,6,7,8,9]
+N_EPOCHS = 260
 # False: skip training and only re-analyze the summary_rows.csv already in SWEEP_DIR
 RUN_TRAINING = True
 

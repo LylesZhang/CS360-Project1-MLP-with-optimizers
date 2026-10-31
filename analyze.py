@@ -3,8 +3,8 @@ import numpy as np
 
 from train import LOG_DIR
 
-MODE = "pilot"  # "pilot" or "sweep"
-STANDARDIZED = True
+MODE = "sweep"  # "pilot" or "sweep"
+STANDARDIZED = False
 
 
 DIR = LOG_DIR / f"{MODE}_{"std" if STANDARDIZED else "raw"}"
