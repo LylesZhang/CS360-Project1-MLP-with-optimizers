@@ -10,7 +10,7 @@ from baselines import closed_form_linear
 from data import prepare_data
 
 LOG_DIR = Path(__file__).parent / "logs"
-SWEEP_DIR = LOG_DIR / "lr_sweep"
+SWEEP_DIR = LOG_DIR / "sweep_std"
 FIG_DIR = Path(__file__).parent / "figures"
 
 # val MSE an optimizer has to reach for the time-to-target comparison
