@@ -5,8 +5,12 @@ import numpy as np
 from data import prepare_data
 from train import LOG_DIR, OPTIMIZERS, training_run
 
+
+
+PHASE = "sweep"
+
 STANDARDIZED = True
-SWEEP_DIR = LOG_DIR / ("sweep_std" if STANDARDIZED else "sweep_raw")
+SWEEP_DIR = LOG_DIR / f"{PHASE}_{"std" if STANDARDIZED else "raw"}"
 
 OPTIMIZER_NAMES = list(OPTIMIZERS)          # full sweep: all five
 # OPTIMIZER_NAMES = ["sgd", "adagrad"]      # pilot
@@ -63,6 +67,10 @@ def summarize(summaries, baseline):
     for name in OPTIMIZER_NAMES:
         for lr in lrs_for(name):
             runs = [s for s in summaries if s["optimizer"] == name and s["lr"] == lr]
+            # check in case sweep was interrrupted and skipped or duplicated runs
+            if len(runs) != len(SEEDS):
+                print(f"{name} lr={lr} has {len(runs)} of {len(SEEDS)} runs")
+                continue
             losses = np.array([s["best_val_loss"] for s in runs])
             # diverged: the loss became nan/inf
             n_diverged = sum(s["diverged"] for s in runs)
