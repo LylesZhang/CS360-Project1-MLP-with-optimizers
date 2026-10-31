@@ -99,6 +99,7 @@ Where each figure's data comes from:
 
 `data/`, `logs/` and `.venv/` are in `.gitignore`, so none of these are committed. The dataset is split 70/15/15 into train/val/test with seed 0 (`data.split_indices`); standardization uses the training split's mean and std only.
 
-## Before reporting results
 
-`SPEED_TARGET` at the top of `plots.py` (used by both `plots.py` and `result.py`) is a placeholder of 0.35 val MSE. Set it to the project's target value before reading the speed metric.
+## TODO
+
+adjust SPEED_TARGET which is using a placeholder value of .35 at the moment.
