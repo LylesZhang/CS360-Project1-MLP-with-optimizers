@@ -12,11 +12,11 @@ PHASE = "pilot"
 STANDARDIZED = False
 SWEEP_DIR = LOG_DIR / f"{PHASE}_{"std" if STANDARDIZED else "raw"}"
 
-#OPTIMIZER_NAMES = list(OPTIMIZERS)          # full sweep: all five
-OPTIMIZER_NAMES = ["adam", "rmsprop", "adagrad"]      # pilot
+#OPTIMIZER_NAMES = list(OPTIMIZERS)          # full sweep: all five optimizers
+OPTIMIZER_NAMES = ["adam", "rmsprop", "adagrad"]
 
 LRS = [1e-4, 3e-4, 1e-3, 3e-3, 1e-2, 3e-2, 1e-1, 3e-1, 1.0]
-# finals: each optimizer runs only at its own winning learning rate instead of every value in LRS
+# finals: each optimizer runs only at its own winning learning rate, not all learning rate
 #FINAL_LRS = None
 FINAL_LRS = {"adam": 0.01, "rmsprop": 0.003, "adagrad": 0.03}
 
