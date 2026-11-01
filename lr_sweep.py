@@ -22,7 +22,7 @@ FINAL_LRS = {"adam": 0.01, "rmsprop": 0.003, "adagrad": 0.03}
 
 SEEDS = [5,6,7,8,9]
 N_EPOCHS = 260
-# False: skip training and only re-analyze the summary_rows.csv already in SWEEP_DIR
+# False: skip training and only re-analyze the summary_rows.csv
 RUN_TRAINING = True
 
 
@@ -33,12 +33,11 @@ def lrs_for(name):
 
 
 def constant_baseline_loss(d):
-    # the best any constant prediction can do on val is var(y_val), so a network that died and outputs a constant never gets below it
+    # the best prediction can do on val is var(y_val), so a network that died and outputs a constant never gets below it
     return np.var(d["y_val"])
 
 
 def run_sweep(d):
-    # training_run appends to summary_rows.csv, so clear it first or a rerun would duplicate every row
     SWEEP_DIR.mkdir(parents=True, exist_ok=True)
     (SWEEP_DIR / "summary_rows.csv").unlink(missing_ok=True)
 
@@ -46,13 +45,11 @@ def run_sweep(d):
         print(f"running {name}")
         for lr in lrs_for(name):
             for seed in SEEDS:
-                # large learning rates are expected to overflow, training_run already records that as diverged
                 with np.errstate(all="ignore"):
                     training_run(d, name, lr, seed, N_EPOCHS, standardized=STANDARDIZED, log_dir=SWEEP_DIR)
 
 
 def load_summaries():
-    # csv gives everything back as text, so convert the columns the analysis compares
     with open(SWEEP_DIR / "summary_rows.csv") as f:
         summaries = list(csv.DictReader(f))
     for s in summaries:
@@ -67,16 +64,14 @@ def summarize(summaries, baseline):
     for name in OPTIMIZER_NAMES:
         for lr in lrs_for(name):
             runs = [s for s in summaries if s["optimizer"] == name and s["lr"] == lr]
-            # check in case sweep was interrrupted and skipped or duplicated runs
             if len(runs) != len(SEEDS):
                 print(f"{name} lr={lr} has {len(runs)} of {len(SEEDS)} runs")
                 continue
             losses = np.array([s["best_val_loss"] for s in runs])
             # diverged: the loss became nan/inf
             n_diverged = sum(s["diverged"] for s in runs)
-            # no better: the loss stayed finite but never beat a constant, e.g. dead ReLUs or a learning rate too small to learn in time
+            # no better: the loss stayed finite but never beat a constant.
             n_no_better = sum(not s["diverged"] and s["best_val_loss"] >= baseline for s in runs)
-            # a seed that diverged before its first validation has best_val_loss = inf, which makes std nan
             with np.errstate(invalid="ignore"):
                 std = losses.std()
             rows.append({"optimizer": name, "lr": lr, "mean_val_loss": losses.mean(), "std_val_loss": std, "n_diverged": n_diverged, "n_no_better": n_no_better})
@@ -84,7 +79,6 @@ def summarize(summaries, baseline):
 
 
 def pick_best_lrs(rows):
-    # lowest mean val loss among learning rates where every seed trained successfully
     best = {}
     for row in rows:
         if row["n_diverged"] + row["n_no_better"] > 0:
