@@ -88,7 +88,7 @@ python plots.py
 
 Saves three PNGs to `figures/`:
 
-- `val_loss_curves.png`: validation loss vs step and vs seconds for the final runs. One line per optimizer (seed mean at its winning lr), a min–max band, log y-axis, dashed lines for the linear-regression baseline and the speed target. Diverged runs are left out of the band and counted in the caption.
+- `val_loss_curves.png`: validation loss vs step and vs seconds for the final runs. One line per optimizer (seed mean at its winning lr), a min–max band, y-axis zoomed to 0.26–0.45 so the optimizers separate, a dotted line for the speed target; the linear-regression baseline (0.538) is above that range and given in the caption. Diverged runs are left out of the band and counted in the caption.
 - `lr_sweep.png`: best validation loss vs learning rate (log x and y), one line per optimizer. A gap means a seed diverged at that lr.
 - `feature_scale.png`: mean best validation loss per optimizer with standardized (filled) vs raw (hollow) features. SGD and Momentum have no raw point; they are labeled "diverged at every lr" in the plot and the caption.
 

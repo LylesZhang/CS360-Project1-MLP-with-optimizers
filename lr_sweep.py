@@ -7,7 +7,7 @@ from train import LOG_DIR, OPTIMIZERS, training_run
 
 
 
-PHASE = "final"
+PHASE = "pilot"
 
 STANDARDIZED = False
 SWEEP_DIR = LOG_DIR / f"{PHASE}_{"std" if STANDARDIZED else "raw"}"

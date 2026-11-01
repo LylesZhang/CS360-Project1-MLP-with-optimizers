@@ -18,6 +18,10 @@ FIG_DIR = Path(__file__).parent / "figures"
 
 # val MSE an optimizer has to reach for the time-to-target comparison
 SPEED_TARGET = 0.316
+# y range of the val loss curves, zoomed in on where the optimizers separate
+CURVE_YLIM = (0.26, 0.45)
+# the mean line is averaged over this many neighbouring epochs to smooth epoch-to-epoch jumps
+SMOOTH_EPOCHS = 5
 
 # same order as train.OPTIMIZERS; each optimizer keeps its color in every figure
 OPTIMIZER_COLORS = {
@@ -94,10 +98,12 @@ def plot_loss_vs_step_and_time(curves, linear_baseline, path):
         for name, c in curves.items():
             color = OPTIMIZER_COLORS[name]
             ax.fill_between(c[x_key], c["loss"].min(axis=0), c["loss"].max(axis=0), color=color, alpha=0.2, linewidth=0)
-            ax.plot(c[x_key], c["loss"].mean(axis=0), color=color, label=f"{name} (lr={c['lr']:g})")
-        ax.axhline(linear_baseline, color="black", linestyle="--", label="linear baseline")
+            # moving average of the seed mean; "valid" drops half a window at each end, so trim x to match
+            smooth = np.convolve(c["loss"].mean(axis=0), np.ones(SMOOTH_EPOCHS) / SMOOTH_EPOCHS, mode="valid")
+            half = SMOOTH_EPOCHS // 2
+            ax.plot(c[x_key][half:len(c[x_key]) - half], smooth, color=color, label=f"{name} (lr={c['lr']:g})")
         ax.axhline(SPEED_TARGET, color="gray", linestyle=":", label="speed target")
-        ax.set_yscale("log")
+        ax.set_ylim(*CURVE_YLIM)
         ax.set_xlabel(x_key)
         ax.set_title(f"Validation loss vs {x_key}")
         ax.grid(alpha=0.3)
@@ -105,7 +111,8 @@ def plot_loss_vs_step_and_time(curves, linear_baseline, path):
     axes[1].legend()
 
     counts = ", ".join(f"{name} {c['n_diverged']}/{c['n_runs']}" for name, c in curves.items())
-    save(fig, path, f"Line: seed mean at the winning lr. Band: min–max over seeds. Diverged runs left out: {counts}.")
+    save(fig, path, f"Line: seed mean at the winning lr, {SMOOTH_EPOCHS}-epoch moving average. Band: min–max over seeds. Diverged runs left out: {counts}. "
+                    f"Linear baseline (val MSE {linear_baseline:.3f}) is above the plotted range.")
 
 
 def plot_lr_sweep(lr_rows, path):
