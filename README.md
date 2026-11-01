@@ -15,17 +15,17 @@ Optional checks: `pytest` runs the gradient, optimizer, metric and PyTorch-parit
 
 ## Running the experiment
 
-Run everything from the repo root, in this order.
+Run everything from the repo root, in this order. `lr_sweep.py` and `analyze.py` are configured by the constants at the top of each file.
 
-### 1. Learning-rate sweep, standardized features
+### 1. Learning-rate sweep
+
+In `lr_sweep.py` set `PHASE = "sweep"`, `FINAL_LRS = None`, all five optimizers in `OPTIMIZER_NAMES`, then run it once with `STANDARDIZED = True` and once with `False`:
 
 ```bash
-python -m experiments.lr_sweep
+python lr_sweep.py
 ```
 
-Trains every optimizer at every learning rate in `LRS` (1e-4 … 1.0) with 5 seeds for 20 epochs: 5 × 9 × 5 = 225 runs. Large learning rates are expected to diverge; those runs are recorded, not errors. When it finishes it prints, per optimizer and lr, the mean ± std val MSE and how many seeds diverged or never beat a constant prediction, and marks the best lr.
-
-Writes to `logs/sweep_std/`:
+Each optimizer is trained at every learning rate in `LRS` (1e-4 … 1.0) for every seed in `SEEDS`. Large learning rates are expected to diverge; those runs are recorded, not errors. It prints mean ± std val MSE per optimizer and lr, how many seeds diverged or never beat a constant prediction, and marks the best lr. Results go to `logs/sweep_std/` or `logs/sweep_raw/`:
 
 | File | Contents |
 |---|---|
@@ -35,38 +35,38 @@ Writes to `logs/sweep_std/`:
 | `lr_table.csv` | one row per optimizer × lr: mean/std val loss, diverged and no-better counts |
 | `best_lrs.csv` | each optimizer's best lr: lowest mean val loss among lrs where every seed trained |
 
-Settings live at the top of `experiments/lr_sweep.py`: `RUN_TRAINING = False` re-analyzes existing logs without training, and `FINAL_LRS` runs each optimizer only at one chosen lr.
+With raw features SGD and Momentum diverge at every lr, so they have no best lr there.
 
-### 2. Same sweep on raw features (for the feature-scale comparison)
+### 2. Working learning-rate range
 
-Set `STANDARDIZED = False` in `experiments/lr_sweep.py` and run it again. Results go to `logs/sweep_raw/` in the same format. Set it back to `True` afterwards.
-
-### 3. Metrics
+In `analyze.py` set `MODE = "sweep"` and `STANDARDIZED = True`, then:
 
 ```bash
-python result.py
+python analyze.py
 ```
 
-Reads `logs/sweep_std/` and prints the four metrics for each optimizer at its best lr, over its 5 seeds. It only prints; it writes no files. Example:
+Writes `logs/sweep_std/winners.csv`: each optimizer's best lr, the epoch where it stops improving, and its working range (lrs whose mean val loss is within 10% of the best) as `working_ratio` = largest / smallest working lr.
 
+### 3. Final runs
+
+In `lr_sweep.py` set `PHASE = "final"` and `FINAL_LRS` to each optimizer's winning lr, then run it with `STANDARDIZED = True` and again with `False` (only the optimizers that have a raw winner). Each optimizer is trained at that one lr with fresh seeds (`SEEDS = [5, 6, 7, 8, 9]`) for `N_EPOCHS`. Results go to `logs/final_std/` and `logs/final_raw/`, in the same format as step 1.
+
+### 4. Metrics
+
+```bash
+python results.py
 ```
-adam (lr=0.01)
-  speed        2227 steps, 0.19 s to target (reached by 5/5 seeds)
-  quality      mean best val MSE 0.3041
-  reliability  seed range 0.2962–0.3156, diverged 0/45 runs, valid lrs 3/9
-  cost         0.0811 ms/step, 2.00x sgd
-```
 
-| Metric | How it is computed | Read from |
-|---|---|---|
-| Speed | mean steps and seconds until val loss first drops to `SPEED_TARGET`, over the seeds that reached it; accurate to one epoch, since val loss is logged once per epoch | training rows |
-| Quality | mean of each seed's best val loss, i.e. the lowest average val loss the optimizer reached | `summary_rows.csv` |
-| Reliability | seed range (min–max of best val loss); diverged runs over the optimizer's whole sweep (always 0 at the best lr itself); valid lrs = lrs with no diverged seed whose mean val loss is within 10% of the optimizer's lowest | `summary_rows.csv` |
-| Cost per step | median time per training step, and that divided by SGD's | training rows |
+Reads `logs/final_std/` and writes `results.csv` in the repo root, one row per optimizer (also printed):
 
-The valid-lr count needs the full sweep; after a `FINAL_LRS` run it is always 1/1.
+| Metric | Columns | How it is computed | Read from |
+|---|---|---|---|
+| Quality | `mean_best_val_loss`, `sd_best_val_loss` | mean and sample SD (n−1) of `best_val_loss` across the 5 seeds | `logs/final_std/summary_rows.csv` |
+| Speed | `steps_to_target`, `seconds_to_target`, `reached` | in each run, the first row with `val_loss` ≤ `SPEED_TARGET` (0.316); its step and time are averaged over the seeds that reached it, and `reached` counts them (e.g. 3/5). "not reached" when no seed does. Accurate to one epoch, since val loss is logged once per epoch | `logs/final_std/{run_id}.csv` |
+| Reliability | `sd_best_val_loss`, `n_diverged`, `working_ratio` | the SD from Quality; diverged runs among the 5; the working-range ratio. Momentum is reported as 3.3× instead of 33×, because a seed diverged at lr 0.003, which lies inside that range | `summary_rows.csv`, `logs/sweep_std/winners.csv` |
+| Cost per step | `median_step_ms`, `cost_vs_sgd` | per run, the median difference between consecutive `time` values, skipping epoch 1 (warm-up); averaged over seeds and divided by SGD's, so SGD = 1.0 | `logs/final_std/{run_id}.csv` |
 
-### 4. Figures
+### 5. Figures
 
 ```bash
 python plots.py
@@ -74,9 +74,9 @@ python plots.py
 
 Saves three PNGs to `figures/`:
 
-- `val_loss_curves.png`: validation loss vs step and vs seconds. One line per optimizer (seed mean at its best lr), a min–max band, log y-axis, dashed lines for the linear-regression baseline and the speed target. Diverged runs are left out of the band and counted in the caption.
+- `val_loss_curves.png`: validation loss vs step and vs seconds for the final runs. One line per optimizer (seed mean at its winning lr), a min–max band, log y-axis, dashed lines for the linear-regression baseline and the speed target. Diverged runs are left out of the band and counted in the caption.
 - `lr_sweep.png`: best validation loss vs learning rate (log x and y), one line per optimizer. A gap means a seed diverged at that lr.
-- `feature_scale.png`: best validation loss per optimizer with standardized (filled) vs raw (hollow) features. Needs step 2; without it only the standardized points appear.
+- `feature_scale.png`: mean best validation loss per optimizer with standardized (filled) vs raw (hollow) features. SGD and Momentum have no raw point; they are labeled "diverged at every lr" in the plot and the caption.
 
 Each optimizer keeps the same color in every figure.
 
@@ -84,9 +84,9 @@ Where each figure's data comes from:
 
 | Figure | Data source |
 |---|---|
-| `val_loss_curves.png` | `logs/sweep_std/best_lrs.csv` picks each optimizer's lr; `logs/sweep_std/summary_rows.csv` gives the `run_id`s of that lr's seeds and which diverged; each run's training rows `logs/sweep_std/{run_id}.csv` give the curve (`step`, `time`, `val_loss` at each epoch end) |
+| `val_loss_curves.png` | `logs/final_std/summary_rows.csv` gives each optimizer's lr, its `run_id`s and which diverged; each run's training rows `logs/final_std/{run_id}.csv` give the curve (`step`, `time`, `val_loss` at each epoch end) |
 | `lr_sweep.png` | `logs/sweep_std/lr_table.csv` (`optimizer`, `lr`, `mean_val_loss`) |
-| `feature_scale.png` | every `summary_rows.csv` under `logs/`, i.e. `logs/sweep_std/` and `logs/sweep_raw/` (`optimizer`, `lr`, `standardized`, `diverged`, `best_val_loss`) |
+| `feature_scale.png` | `logs/final_std/summary_rows.csv` and `logs/final_raw/summary_rows.csv` (`optimizer`, `best_val_loss`) |
 | linear baseline line | not from the logs: `plots.py` loads the dataset with `data.prepare_data` and fits least squares (`baselines.closed_form_linear`) to get its validation MSE |
 
 ## Where the data lives
@@ -94,13 +94,9 @@ Where each figure's data comes from:
 | Path | What it is | Made by |
 |---|---|---|
 | `data/cal_housing_py3.pkz` | the raw California housing dataset (20,640 houses, 8 features, target = median house value in $100k), cached by sklearn | first call to `data.prepare_data` |
-| `logs/sweep_std/` | training logs of the standardized-feature sweep (files listed in step 1) | `experiments/lr_sweep.py` |
-| `logs/sweep_raw/` | the same for raw features | `experiments/lr_sweep.py` with `STANDARDIZED = False` |
+| `logs/sweep_std/`, `logs/sweep_raw/` | learning-rate sweep logs (files listed in step 1); `sweep_std/` also holds `winners.csv` | `lr_sweep.py` with `PHASE = "sweep"`, `analyze.py` |
+| `logs/final_std/`, `logs/final_raw/` | final runs at each optimizer's winning lr | `lr_sweep.py` with `PHASE = "final"` |
+| `results.csv` | the four metrics, one row per optimizer | `results.py` |
 | `figures/` | the three PNGs | `plots.py` |
 
-`data/`, `logs/` and `.venv/` are in `.gitignore`, so none of these are committed. The dataset is split 70/15/15 into train/val/test with seed 0 (`data.split_indices`); standardization uses the training split's mean and std only.
-
-
-## TODO
-
-adjust SPEED_TARGET which is using a placeholder value of .35 at the moment.
+`data/`, `logs/` and `.venv/` are in `.gitignore`, so they are not committed: the logs exist only on the machine that ran the training, and have to be copied over to run `results.py` or `plots.py` elsewhere. The dataset is split 70/15/15 into train/val/test with seed 0 (`data.split_indices`); standardization uses the training split's mean and std only.

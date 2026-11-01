@@ -11,10 +11,13 @@ from data import prepare_data
 
 LOG_DIR = Path(__file__).parent / "logs"
 SWEEP_DIR = LOG_DIR / "sweep_std"
+# final runs: each optimizer at its winning lr, with standardized and raw features
+FINAL_STD_DIR = LOG_DIR / "final_std"
+FINAL_RAW_DIR = LOG_DIR / "final_raw"
 FIG_DIR = Path(__file__).parent / "figures"
 
 # val MSE an optimizer has to reach for the time-to-target comparison
-SPEED_TARGET = 0.35
+SPEED_TARGET = 0.316
 
 # same order as train.OPTIMIZERS; each optimizer keeps its color in every figure
 OPTIMIZER_COLORS = {
@@ -31,17 +34,14 @@ def load_csv(path):
         return list(csv.DictReader(csvfile))
 
 
-def load_summaries(paths):
-    # a run logged in more than one summary file is kept once
-    by_id = {}
-    for path in paths:
-        for row in load_csv(path):
-            row["lr"] = float(row["lr"])
-            row["standardized"] = row["standardized"] == "True"
-            row["diverged"] = row["diverged"] == "True"
-            row["best_val_loss"] = float(row["best_val_loss"])
-            by_id[row["run_id"]] = row
-    return list(by_id.values())
+def load_summaries(path):
+    rows = load_csv(path)
+    for row in rows:
+        row["lr"] = float(row["lr"])
+        row["standardized"] = row["standardized"] == "True"
+        row["diverged"] = row["diverged"] == "True"
+        row["best_val_loss"] = float(row["best_val_loss"])
+    return rows
 
 
 def load_val_curve(path):
@@ -65,15 +65,18 @@ def save(fig, path, caption):
     plt.close(fig)
 
 
-def collect_curves(summaries, best_lrs):
-    """Per-epoch step, seconds and val loss of every finished seed at each optimizer's best lr"""
+def collect_curves(summaries):
+    """Per-epoch step, seconds and val loss of every finished seed of each optimizer's final runs"""
     curves = {}
-    for name, lr in best_lrs.items():
-        runs = [s for s in summaries if s["optimizer"] == name and s["standardized"] and np.isclose(s["lr"], lr)]
+    for name in OPTIMIZER_COLORS:
+        # the final runs use one lr per optimizer, its winner from the sweep
+        runs = [s for s in summaries if s["optimizer"] == name]
+        if not runs:
+            continue
         # diverged runs stop early and blow up, so they stay out of the mean and the band
-        finished = [load_val_curve(SWEEP_DIR / f"{r['run_id']}.csv") for r in runs if not r["diverged"]]
+        finished = [load_val_curve(FINAL_STD_DIR / f"{r['run_id']}.csv") for r in runs if not r["diverged"]]
         curves[name] = {
-            "lr": lr,
+            "lr": runs[0]["lr"],
             "n_runs": len(runs),
             "n_diverged": len(runs) - len(finished),
             # every seed sees the same batches per epoch, so steps line up exactly
@@ -102,7 +105,7 @@ def plot_loss_vs_step_and_time(curves, linear_baseline, path):
     axes[1].legend()
 
     counts = ", ".join(f"{name} {c['n_diverged']}/{c['n_runs']}" for name, c in curves.items())
-    save(fig, path, f"Line: seed mean at best lr. Band: min–max over seeds. Diverged runs left out: {counts}.")
+    save(fig, path, f"Line: seed mean at the winning lr. Band: min–max over seeds. Diverged runs left out: {counts}.")
 
 
 def plot_lr_sweep(lr_rows, path):
@@ -123,30 +126,28 @@ def plot_lr_sweep(lr_rows, path):
     save(fig, path, "Gaps: a seed diverged, so the mean is infinite.")
 
 
-def best_by_scale(summaries):
-    """Lowest seed-mean best val loss per (optimizer, standardized) over lrs where no seed diverged"""
-    groups = {}
+def mean_best_loss(summaries):
+    by_name = {}
     for s in summaries:
-        groups.setdefault((s["optimizer"], s["standardized"], s["lr"]), []).append(s)
-    best = {}
-    for (name, standardized, lr), runs in groups.items():
-        if any(r["diverged"] for r in runs):
-            continue
-        loss = np.mean([r["best_val_loss"] for r in runs])
-        best[(name, standardized)] = min(loss, best.get((name, standardized), np.inf))
-    return best
+        by_name.setdefault(s["optimizer"], []).append(s["best_val_loss"])
+    return {name: np.mean(losses) for name, losses in by_name.items()}
 
 
-def plot_feature_scale(summaries, linear_baseline, path):
-    best = best_by_scale(summaries)
+def plot_feature_scale(std_summaries, raw_summaries, linear_baseline, path):
+    std, raw = mean_best_loss(std_summaries), mean_best_loss(raw_summaries)
     names = list(OPTIMIZER_COLORS)
+    # an optimizer has no final raw runs because it diverged at every lr of the raw sweep
+    no_raw = [name for name in names if name in std and name not in raw]
     fig, ax = plt.subplots(figsize=(7.5, 4.8))
     for i, name in enumerate(names):
         color = OPTIMIZER_COLORS[name]
-        if (name, True) in best:
-            ax.plot(i - 0.1, best[(name, True)], "o", color=color, markersize=9)
-        if (name, False) in best:
-            ax.plot(i + 0.1, best[(name, False)], "o", markerfacecolor="white", markeredgecolor=color, markersize=9, markeredgewidth=2)
+        if name in std:
+            ax.plot(i - 0.1, std[name], "o", color=color, markersize=9)
+        if name in raw:
+            ax.plot(i + 0.1, raw[name], "o", markerfacecolor="white", markeredgecolor=color, markersize=9, markeredgewidth=2)
+        elif name in no_raw:
+            ax.annotate("raw: diverged\nat every lr", (i, std[name]), xytext=(0, 14), textcoords="offset points",
+                        ha="center", fontsize=8, color="gray")
     ax.plot([], [], "o", color="gray", label="standardized")
     ax.plot([], [], "o", markerfacecolor="white", markeredgecolor="gray", markeredgewidth=2, label="raw")
     ax.axhline(linear_baseline, color="black", linestyle="--", label="linear baseline")
@@ -156,21 +157,23 @@ def plot_feature_scale(summaries, linear_baseline, path):
     ax.set_title("Feature scale: standardized vs raw")
     ax.grid(alpha=0.3, axis="y")
     ax.legend()
-    save(fig, path, "Each point: best lr where no seed diverged.")
+    caption = "Each point: mean best val loss over the final runs at the winning lr."
+    if no_raw:
+        caption += f" No raw point for {', '.join(no_raw)}: diverged at every lr with raw features."
+    save(fig, path, caption)
 
 
 def main():
     linear_baseline = linear_baseline_loss()
     FIG_DIR.mkdir(parents=True, exist_ok=True)
 
-    best_lrs = {r["optimizer"]: float(r["lr"]) for r in load_csv(SWEEP_DIR / "best_lrs.csv")}
-    curves = collect_curves(load_summaries([SWEEP_DIR / "summary_rows.csv"]), best_lrs)
-    plot_loss_vs_step_and_time(curves, linear_baseline, FIG_DIR / "val_loss_curves.png")
+    std_summaries = load_summaries(FINAL_STD_DIR / "summary_rows.csv")
+    plot_loss_vs_step_and_time(collect_curves(std_summaries), linear_baseline, FIG_DIR / "val_loss_curves.png")
 
     plot_lr_sweep(load_csv(SWEEP_DIR / "lr_table.csv"), FIG_DIR / "lr_sweep.png")
 
-    # raw-feature runs can live in their own log folder, so read every summary under logs/
-    plot_feature_scale(load_summaries(sorted(LOG_DIR.rglob("summary_rows.csv"))), linear_baseline, FIG_DIR / "feature_scale.png")
+    raw_summaries = load_summaries(FINAL_RAW_DIR / "summary_rows.csv")
+    plot_feature_scale(std_summaries, raw_summaries, linear_baseline, FIG_DIR / "feature_scale.png")
 
     print(f"figures written to {FIG_DIR}")
 
