@@ -5,19 +5,18 @@ from interfaces import Params
 
 
 def _clamp_to_finite(a: np.ndarray) -> None:
-    """g^2 accumulators can overflow float32 (|g| > ~1.8e19) during divergence; clamp inf to the largest finite value in place"""
+    #preventing g^2 term from overflowing
     np.minimum(a, np.finfo(a.dtype).max, out=a)
 
 
 class Optimizer(ABC):
     def __init__(self, lr:float):
-        """Constructor"""
         self.lr = lr
         self.state = {}
         self.t = 0 # This counts the steps
     
     def step(self, params: Params, grads: Params) -> None:
-        """This updates the Params and change it"""
+        #This updates the Params and change it
         if params.keys() != grads.keys():
             raise KeyError(f"params and grads have different keys: {sorted(params)} vs {sorted(grads)}")
         self.t += 1
@@ -26,8 +25,8 @@ class Optimizer(ABC):
                 raise ValueError(f"{name}: param shape {params[name].shape} != grad shape {grads[name].shape}")
             self._update(name, params[name], grads[name])
 
+    # clean the state and reset optimizer
     def reset(self) -> None:
-        """This emptied the state and step counter of the optimizer"""
         self.state = {}
         self.t = 0
 
@@ -51,38 +50,6 @@ class SGD_momentum(Optimizer):
             self.state[name] = self.m * self.state[name] + g
         p -= self.lr * self.state[name]
 
-class Adam(Optimizer):
-    def __init__(self, lr=1e-3, beta_1=0.9, beta_2=0.999, epsilon=1e-8, bias_correction=True): # These default parameters align with the one from Pytorch
-        super().__init__(lr)
-        self.beta_1 = beta_1
-        self.beta_2 = beta_2
-        self.epsilon = epsilon
-        # bias_correction=False with beta_1=0 is exactly RMSProp (alpha=beta_2)
-        self.bias_correction = bias_correction
-
-    def _update(self, name:str, p: np.ndarray, g: np.ndarray):
-        with np.errstate(over="ignore"):
-            g_sq = np.square(g)
-
-            if name not in self.state:
-                self.state[name] = {"m": (1 - self.beta_1) * g, "v": (1 - self.beta_2) * g_sq}
-
-            else:
-                self.state[name] = {"m": self.beta_1 * self.state[name]["m"] + (1 - self.beta_1) * g, "v": self.beta_2 * self.state[name]["v"] + (1 - self.beta_2) * g_sq}
-
-        v = self.state[name]["v"]
-        _clamp_to_finite(v)
-
-        if self.bias_correction:
-            m_hat = self.state[name]["m"]/(1 - self.beta_1**self.t)
-            # sqrt(v_hat) computed as sqrt(v)/sqrt(1-beta_2^t) so the division cannot overflow again
-            sqrt_v_hat = np.sqrt(v)/math.sqrt(1 - self.beta_2**self.t)
-        else:
-            m_hat = self.state[name]["m"]
-            sqrt_v_hat = np.sqrt(v)
-
-        p -= self.lr * m_hat / (sqrt_v_hat + self.epsilon)
-
 
 class AdaGrad(Optimizer):
     def __init__(self, lr=1e-3, epsilon=1e-10):
@@ -95,7 +62,7 @@ class AdaGrad(Optimizer):
 
         with np.errstate(over="ignore"):
             self.state[name] += np.square(g)
-        # the sum never decays: without the clamp one inf would freeze this parameter forever
+        # the sum never decays, clamp to avoid overflow
         _clamp_to_finite(self.state[name])
         p -= self.lr * g / (np.sqrt(self.state[name]) + self.epsilon)
 
@@ -114,3 +81,35 @@ class RMSProp(Optimizer):
             self.state[name] = (self.alpha * self.state[name]) + ((1-self.alpha) * np.square(g))
         _clamp_to_finite(self.state[name])
         p -= self.lr * g / (np.sqrt(self.state[name]) + self.epsilon)
+
+
+class Adam(Optimizer):
+    def __init__(self, lr=1e-3, beta_1=0.9, beta_2=0.999, epsilon=1e-8, bias_correction=True): # These default parameters align with the one from Pytorch
+        super().__init__(lr)
+        self.beta_1 = beta_1
+        self.beta_2 = beta_2
+        self.epsilon = epsilon
+        self.bias_correction = bias_correction # allowing us to turn off bias correction for degradation check
+
+    def _update(self, name:str, p: np.ndarray, g: np.ndarray):
+        with np.errstate(over="ignore"):
+            g_sq = np.square(g)
+
+            if name not in self.state:
+                self.state[name] = {"m": (1 - self.beta_1) * g, "v": (1 - self.beta_2) * g_sq}
+
+            else:
+                self.state[name] = {"m": self.beta_1 * self.state[name]["m"] + (1 - self.beta_1) * g, "v": self.beta_2 * self.state[name]["v"] + (1 - self.beta_2) * g_sq}
+
+        v = self.state[name]["v"]
+        _clamp_to_finite(v)
+
+        if self.bias_correction:
+            m_hat = self.state[name]["m"]/(1 - self.beta_1**self.t)
+            sqrt_v_hat = np.sqrt(v)/math.sqrt(1 - self.beta_2**self.t)
+        else:
+            m_hat = self.state[name]["m"]
+            sqrt_v_hat = np.sqrt(v)
+
+        p -= self.lr * m_hat / (sqrt_v_hat + self.epsilon)
+

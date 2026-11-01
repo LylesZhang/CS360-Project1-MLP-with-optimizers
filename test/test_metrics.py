@@ -13,14 +13,12 @@ def make_pred_and_y(n=100, seed=0):
 def test_hand_computed():
     pred = np.array([0.0, 0.0])
     y = np.array([4.0, 0.0])
-    # errors are 4 and 0: rmse = sqrt((16 + 0) / 2) = sqrt(8), mae = (4 + 0) / 2 = 2
     assert rmse(pred, y) == pytest.approx(np.sqrt(8))
     assert mae(pred, y) == pytest.approx(2.0)
 
 
 def test_matches_sklearn():
     pred, y = make_pred_and_y()
-    # sklearn takes (y_true, y_pred)
     assert rmse(pred, y) == pytest.approx(root_mean_squared_error(y, pred))
     assert mae(pred, y) == pytest.approx(mean_absolute_error(y, pred))
 

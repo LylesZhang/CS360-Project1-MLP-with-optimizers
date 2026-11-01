@@ -11,19 +11,15 @@ from data import prepare_data
 
 LOG_DIR = Path(__file__).parent / "logs"
 SWEEP_DIR = LOG_DIR / "sweep_std"
-# final runs: each optimizer at its winning lr, with standardized and raw features
 FINAL_STD_DIR = LOG_DIR / "final_std"
 FINAL_RAW_DIR = LOG_DIR / "final_raw"
 FIG_DIR = Path(__file__).parent / "figures"
 
-# val MSE an optimizer has to reach for the time-to-target comparison
-SPEED_TARGET = 0.316
-# y range of the val loss curves, zoomed in on where the optimizers separate
-CURVE_YLIM = (0.26, 0.45)
-# the mean line is averaged over this many neighbouring epochs to smooth epoch-to-epoch jumps
+SPEED_TARGET = 0.316  # val MSE that counts as "reached" for speed
+CURVE_YLIM = (0.26, 0.45)  # zoomed in so the curves don't pile on top of each other
 SMOOTH_EPOCHS = 5
 
-# same order as train.OPTIMIZERS; each optimizer keeps its color in every figure
+# one color per optimizer, same in every plot
 OPTIMIZER_COLORS = {
     "sgd": "#2a78d6",
     "momentum": "#eb6834",
@@ -49,7 +45,7 @@ def load_summaries(path):
 
 
 def load_val_curve(path):
-    # val_loss is only filled in on the last step of each epoch
+    # val_loss is only logged once per epoch
     rows = [r for r in load_csv(path) if r["val_loss"] != ""]
     step = np.array([int(r["step"]) for r in rows])
     seconds = np.array([float(r["time"]) for r in rows])
@@ -70,23 +66,19 @@ def save(fig, path, caption):
 
 
 def collect_curves(summaries):
-    """Per-epoch step, seconds and val loss of every finished seed of each optimizer's final runs"""
     curves = {}
     for name in OPTIMIZER_COLORS:
-        # the final runs use one lr per optimizer, its winner from the sweep
         runs = [s for s in summaries if s["optimizer"] == name]
         if not runs:
             continue
-        # diverged runs stop early and blow up, so they stay out of the mean and the band
+        # skip diverged runs, they'd wreck the mean
         finished = [load_val_curve(FINAL_STD_DIR / f"{r['run_id']}.csv") for r in runs if not r["diverged"]]
         curves[name] = {
             "lr": runs[0]["lr"],
             "n_runs": len(runs),
             "n_diverged": len(runs) - len(finished),
-            # every seed sees the same batches per epoch, so steps line up exactly
-            "step": finished[0][0],
-            # wall-clock differs per seed, so x is the mean time at which each epoch finished
-            "seconds": np.mean([f[1] for f in finished], axis=0),
+            "step": finished[0][0],  # same for every seed
+            "seconds": np.mean([f[1] for f in finished], axis=0),  # wall time varies a bit, so average it
             "loss": np.array([f[2] for f in finished]),
         }
     return curves
@@ -98,7 +90,7 @@ def plot_loss_vs_step_and_time(curves, linear_baseline, path):
         for name, c in curves.items():
             color = OPTIMIZER_COLORS[name]
             ax.fill_between(c[x_key], c["loss"].min(axis=0), c["loss"].max(axis=0), color=color, alpha=0.2, linewidth=0)
-            # moving average of the seed mean; "valid" drops half a window at each end, so trim x to match
+            # smooth the mean; "valid" trims the ends, so trim x too
             smooth = np.convolve(c["loss"].mean(axis=0), np.ones(SMOOTH_EPOCHS) / SMOOTH_EPOCHS, mode="valid")
             half = SMOOTH_EPOCHS // 2
             ax.plot(c[x_key][half:len(c[x_key]) - half], smooth, color=color, label=f"{name} (lr={c['lr']:g})")
@@ -121,12 +113,12 @@ def plot_lr_sweep(lr_rows, path):
         rows = sorted((r for r in lr_rows if r["optimizer"] == name), key=lambda r: float(r["lr"]))
         lr = [float(r["lr"]) for r in rows]
         loss = [float(r["mean_val_loss"]) for r in rows]
-        # matplotlib skips inf, so a learning rate where a seed diverged leaves a gap
+        # diverged lrs are inf, which just shows up as a gap
         ax.plot(lr, loss, "o-", color=color, label=name)
     ax.set_xscale("log")
     ax.set_yscale("log")
     ax.set_xlabel("learning rate")
-    ax.set_ylabel("best validation MSE (seed mean)")
+    ax.set_ylabel("best validation MSE (mean over all seeds)")
     ax.set_title("Learning-rate sweep")
     ax.grid(alpha=0.3)
     ax.legend()
@@ -143,7 +135,7 @@ def mean_best_loss(summaries):
 def plot_feature_scale(std_summaries, raw_summaries, linear_baseline, path):
     std, raw = mean_best_loss(std_summaries), mean_best_loss(raw_summaries)
     names = list(OPTIMIZER_COLORS)
-    # an optimizer has no final raw runs because it diverged at every lr of the raw sweep
+    # no raw runs = diverged at every lr
     no_raw = [name for name in names if name in std and name not in raw]
     fig, ax = plt.subplots(figsize=(7.5, 4.8))
     for i, name in enumerate(names):
@@ -160,7 +152,7 @@ def plot_feature_scale(std_summaries, raw_summaries, linear_baseline, path):
     ax.axhline(linear_baseline, color="black", linestyle="--", label="linear baseline")
     ax.set_xticks(range(len(names)), names)
     ax.set_yscale("log")
-    ax.set_ylabel("best validation MSE (seed mean)")
+    ax.set_ylabel("best validation MSE (mean over all seeds)")
     ax.set_title("Feature scale: standardized vs raw")
     ax.grid(alpha=0.3, axis="y")
     ax.legend()

@@ -8,7 +8,6 @@ SHAPES = {"W1": (4, 5), "b1": (5,), "W2": (5, 1), "b2": (1,)}
 N_STEPS = 50
 TOL = 1e-6
 
-# fresh instance of every optimizer, for tests of shared base-class behaviour
 ALL_OPTIMIZERS = {
     "SGD": lambda: SGD(0.1),
     "Momentum": lambda: SGD_momentum(0.1, 0.9),
@@ -16,8 +15,8 @@ ALL_OPTIMIZERS = {
     "AdaGrad": lambda: AdaGrad(1e-2, 1e-10),
     "RMSProp": lambda: RMSProp(1e-2, 0.99, 1e-8),
 }
-# optimizers that keep a running sum/average of g^2
-SECOND_MOMENT_OPTIMIZERS = ["Adam", "AdaGrad", "RMSProp"]
+
+SECOND_MOMENT_OPTIMIZERS = ["Adam", "AdaGrad", "RMSProp"] # marks those optimizers keeping a running sum/average of g^2
 
 
 def make_problem(seed=0):
@@ -61,7 +60,7 @@ def state_arrays(opt):
         yield from (s.values() if isinstance(s, dict) else [s])
 
 
-# ---------- torch parity ----------
+#torch parity 
 
 @pytest.mark.parametrize("lr", [0.1, 0.01])
 def test_sgd_parity(lr):
@@ -87,7 +86,7 @@ def test_adam_parity(lr, betas, eps):
     assert_same_trajectory(ours, ref)
 
 
-# our AdaGrad defaults (lr=1e-3, eps=1e-8) differ from torch's (lr=1e-2, eps=1e-10), so always pass them explicitly
+# remember that AdaGrad defaults (lr=1e-3, eps=1e-8) differs from torch's (lr=1e-2, eps=1e-10), should be passed explicitly when testing
 @pytest.mark.parametrize("lr,eps", [(1e-2, 1e-10), (1e-1, 1e-8)])
 def test_adagrad_parity(lr, eps):
     params, grad_seq = make_problem()
@@ -104,7 +103,7 @@ def test_rmsprop_parity(lr, alpha, eps):
     assert_same_trajectory(ours, ref)
 
 
-# ---------- equivalence ----------
+# equivalence
 
 def test_momentum_zero_equals_sgd():
     params, grad_seq = make_problem()
@@ -130,7 +129,7 @@ def test_rmsprop_class_equals_adam_degenerate(alpha, eps):
     assert_same_trajectory(ours, adam, tol=1e-12)
 
 
-# ---------- defining properties of AdaGrad / RMSProp ----------
+# defining properties of AdaGrad / RMSProp
 
 def test_adagrad_first_step_moves_by_lr():
     # step 1: sum = g^2, so the update is lr * g / (|g| + eps) ~= lr * sign(g)
@@ -148,7 +147,6 @@ def test_adagrad_first_step_moves_by_lr():
 
 @pytest.mark.parametrize("alpha", [0.99, 0.9])
 def test_rmsprop_first_step_is_lr_over_sqrt_one_minus_alpha(alpha):
-    # no bias correction: v_1 = (1-alpha) g^2, so the update is lr * g / (sqrt(1-alpha) |g| + eps) ~= lr / sqrt(1-alpha)
     params, grad_seq = make_problem()
     lr, eps = 1e-3, 1e-8
     before = {k: v.copy() for k, v in params.items()}
@@ -162,7 +160,6 @@ def test_rmsprop_first_step_is_lr_over_sqrt_one_minus_alpha(alpha):
 
 
 def test_adagrad_step_decays_as_inv_sqrt_t():
-    # constant g: sum_t = t g^2, so |delta_t| = lr |g| / (sqrt(t) |g| + eps) ~= lr / sqrt(t)
     lr, eps, g = 0.1, 1e-10, 0.5
     opt = AdaGrad(lr, eps)
     p = {"w": np.zeros(1)}
@@ -174,7 +171,6 @@ def test_adagrad_step_decays_as_inv_sqrt_t():
 
 
 def test_rmsprop_constant_grad_steady_state():
-    # constant g: v_t = (1-alpha^t) g^2, so |delta_t| = lr / sqrt(1-alpha^t) -> lr (does NOT decay, unlike AdaGrad)
     lr, alpha, eps, g = 0.1, 0.99, 1e-12, 0.5
     opt = RMSProp(lr, alpha, eps)
     p = {"w": np.zeros(1)}
@@ -185,7 +181,7 @@ def test_rmsprop_constant_grad_steady_state():
     np.testing.assert_allclose(np.abs(p["w"] - before), lr, rtol=1e-8)
 
 
-# ---------- Adam first step ----------
+# Adam first step
 
 def test_adam_first_step_moves_by_lr():
     # step 1: m_hat = g, v_hat = g^2, so the update is lr * g / (|g| + eps) ~= lr * sign(g)
@@ -202,7 +198,7 @@ def test_adam_first_step_moves_by_lr():
         assert np.all(np.sign(delta) == -np.sign(grad_seq[0][k]))
 
 
-# ---------- base class behaviour ----------
+# base class behaviour
 
 @pytest.mark.parametrize("name", ALL_OPTIMIZERS)
 def test_reset_clears_state(name):
@@ -228,7 +224,7 @@ def test_updates_in_place(name):
 
 @pytest.mark.parametrize("name", ALL_OPTIMIZERS)
 def test_keeps_float32(name):
-    # experiments run in float32: neither params nor optimizer state may be silently upcast to float64
+    # neither params nor optimizer state may be silently upcast to float64
     rng = np.random.default_rng(0)
     params = {k: rng.standard_normal(s).astype(np.float32) for k, s in SHAPES.items()}
     opt = ALL_OPTIMIZERS[name]()
@@ -261,14 +257,14 @@ def test_mismatched_grads_raise():
         SGD(0.1).step(params, bad)
 
 
-# ---------- float32 overflow guards ----------
+# float32 overflow guards
 
 @pytest.mark.parametrize("name", SECOND_MOMENT_OPTIMIZERS)
 def test_float32_overflow_guard(name):
-    # 1e21 is a finite float32, but (1e21)^2 = 1e42 overflows it (max ~3.4e38), as does (1-alpha) * 1e42
+    # check overflow by using a large value g
     opt = ALL_OPTIMIZERS[name]()
     p = {"w": np.zeros(3, dtype=np.float32)}
-    with np.errstate(over="raise", invalid="raise"):  # any un-silenced overflow or inf-inf/inf/inf fails the test
+    with np.errstate(over="raise", invalid="raise"):
         opt.step(p, {"w": np.array([1e21, -1e21, 1.0], dtype=np.float32)})
         for _ in range(10):  # back to ordinary gradients
             opt.step(p, {"w": np.ones(3, dtype=np.float32)})
@@ -278,8 +274,7 @@ def test_float32_overflow_guard(name):
 
 @pytest.mark.parametrize("name", ["Adam", "RMSProp"])
 def test_clamped_moving_average_decays_back(name):
-    # with the clamp, an exponential moving average of g^2 shrinks again once gradients are normal
-    # (without it, beta * inf = inf would freeze the parameter forever)
+    # check if g^2 would shrink after clamping
     def g_sq_average(opt):
         s = opt.state["w"]
         return s["v"] if isinstance(s, dict) else s
@@ -291,4 +286,4 @@ def test_clamped_moving_average_decays_back(name):
     assert np.all(np.isfinite(peak))
     for _ in range(100):
         opt.step(p, {"w": np.ones(1, dtype=np.float32)})
-    assert np.all(g_sq_average(opt) < peak)
+    assert np.all(g_sq_average(opt) < peak) # check shrinkage
