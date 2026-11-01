@@ -1,117 +1,108 @@
-# CS360-Project1-MLP-with-optimizers
+# CS360 Project 1: Comparing Different Gradient Optimizers on 2-hidden-layer MLP
 
-A NumPy MLP (8 → 16 → 16 → 1, ReLU) trained on California housing with five optimizers (SGD, SGD with momentum, Adam, RMSProp, AdaGrad), compared on speed, quality, reliability and cost per step.
-
-## Setup
+Requirements: Python 3.12 or newer
 
 ```bash
-python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt
+python3.12 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+
 ```
-Requires Python 3.12 or newer.
 
-The first run downloads the California housing dataset into `data/`. 
+First run downloads scikit-learn California Housing dataset into data/.
 
-Optional checks: `pytest` runs the gradient, optimizer, metric and PyTorch-parity tests, and `python baselines.py` prints the mean / linear / sklearn MLP baselines.
+Check the code runs
+```bash
+python -m pytest
+```
+All 58 tests should pass.
 
-## Running the experiment
 
-Run everything from the repo root, in this order. `lr_sweep.py` and `analyze.py` are configured by the constants at the top of each file.
+## Fixed Settings
 
-Every training run uses the same network and batch size (48); the phases differ only in optimizers, learning rates, seeds and epochs:
+1. Model: 2 hidden layer MLP [8, 16, 16, 1], ReLU, 433 parameters, float32
+2. Loss: MSE
+3. Batch size: 48
+4. Split: 70/15/15 = 14,448/3,096/3,096 rows training/validation/test, fixed by seed 0 
+5. Hyperparameters: only learning rate changes, PyTorch defaults for rest
+6. Learning rates sweeped: 1e-4, 3e-4, 1e-3, 3e-3, 1e-2, 3e-2, 1e-1, 3e-1, 1
+7. Seeds: 0-4 for sweeps, 5-9 for finals
+8. Divergence: Stop run if batch or validation loss is NaN or inf
+9. Failed run: Diverged or best validation loss is never better than a constant (var(y_val))
+10. Final weights: Best validation run weights, saved as .npz
 
-| Phase | `lr_sweep.py` settings | Runs | Output |
-|---|---|---|---|
-| 0. Pilot | `PHASE = "pilot"`, SGD and AdaGrad, all 9 lrs, `SEEDS = [0]`, `N_EPOCHS = 200`, standardized | 18 | `logs/pilot_std/` |
-| 1. Sweep | `PHASE = "sweep"`, all five optimizers, all 9 lrs, `SEEDS = [0, 1, 2, 3, 4]`, `N_EPOCHS = 260`, `FINAL_LRS = None`; once standardized, once raw | 225 + 225 | `logs/sweep_std/`, `logs/sweep_raw/` |
-| 3. Final | `PHASE = "final"`, each optimizer at its winning lr only, `SEEDS = [5, 6, 7, 8, 9]`, `N_EPOCHS = 260`; once standardized, once raw | 25 + 15 | `logs/final_std/`, `logs/final_raw/` |
 
-### 0. Pilot: choose the epoch budget
+## Reproducing the Experiment
+Run every step in order, one at a time. Do not interrupt a sweep.
 
-Run `python lr_sweep.py` with the pilot settings above, then `python analyze.py` with `MODE = "pilot"` and `STANDARDIZED = True`. For each optimizer's best lr it finds the epoch where the val loss first gets within 1% of its lowest, and prints the budget as twice the slowest of those. Our pilot: SGD stops improving at epoch 130 and AdaGrad at 98, so the budget is 2 × 130 = **260 epochs**, used by the sweep and the final runs.
+For each phase, edit the following constants in lr_sweep.py and analyze.py (below), be sure to save, then run.
 
-### 1. Learning-rate sweep
+| Phase | `PHASE` | `STANDARDIZED` | `OPTIMIZER_NAMES` | `FINAL_LRS` | `SEEDS` | `N_EPOCHS` |
+| --- | --- | --- | --- | --- | --- | --- |
+| A. Pilot | `"pilot"` | `True` | `["sgd", "adagrad"]` | `None` | `[0]` | `200` |
+| B. Standardized sweep | `"sweep"` | `True` | `list(OPTIMIZERS)` | `None` | `[0, 1, 2, 3, 4]` | `260` |
+| C. Raw sweep | `"sweep"` | `False` | `list(OPTIMIZERS)` | `None` | `[0, 1, 2, 3, 4]` | `260` |
+| D. Standardized finals | `"final"` | `True` | `list(OPTIMIZERS)` | standardized dict (below) | `[5, 6, 7, 8, 9]` | `260` |
+| E. Raw finals | `"final"` | `False` | `["adam", "rmsprop", "adagrad"]` | raw dict (below) | `[5, 6, 7, 8, 9]` | `260` |
+
+Two constants:
+- LRS = [1e-4, 3e-4, 1e-3, 3e-3, 1e-2, 3e-2, 1e-1, 3e-1, 1.0]
+- RUN_TRAINING = True
+
+### A. Pilot
+Edit constants in lr_sweep.py (refer to table)
+In analyze.py, set MODE to "pilot", and STANDARDIZED to True.
+
+```bash
+python lr_sweep.py
+python analyze.py
+```
+analyze.py prints each winner's stop epoch, the first epoch whose validation loss is within 1% of the best achieved (within 200 epochs), and the budget (B) is set to twice the later of the two. We got SGD at epoch 130 and AdaGrad at 98, so B = 260.
+
+### B. Standardized sweep
+Edit constants in lr_sweep.py (refer to table)
+In analyze.py, set MODE to "sweep", and STANDARDIZED to True.
+
+```bash
+python lr_sweep.py
+python analyze.py
+```
+lr_sweep.py writes lr_table.csv (every optimizer × learning rate) and best_lrs.csv (the winners). analyze.py writes winners.csv (stop epoch and working range) and prints a warning for any tieing lrs.
+
+### C. Raw sweep
+Edit constants in lr_sweep.py (refer to table)
+In analyze.py, set MODE to "sweep", and STANDARDIZED to False.
+
+```bash
+python lr_sweep.py
+python analyze.py
+```
+SGD and Momentum diverge at every learning rate here, so only Adam, RMSProp and AdaGrad have raw winners.
+
+### D. Standardized finals
+Edit constants in lr_sweep.py (refer to table)
+Set FINAL_LRS to winner from B (ours: FINAL_LRS = {"sgd": 0.01, "momentum": 0.001, "adam": 0.003, "rmsprop": 0.003, "adagrad": 0.3})
 
 ```bash
 python lr_sweep.py
 ```
 
-Each optimizer is trained at every learning rate in `LRS` (1e-4 … 1.0) for every seed in `SEEDS`. Large learning rates are expected to diverge; those runs are recorded, not errors. It prints mean ± std val MSE per optimizer and lr, how many seeds diverged or never beat a constant prediction, and marks the best lr. Run it with `STANDARDIZED = True` and again with `False`. Each run folder holds:
-
-| File | Contents |
-|---|---|
-| `{run_id}.csv` | training rows of one run: `step, epoch, batch_loss, time, val_loss` (`val_loss` only on the last step of each epoch, `time` excludes validation) |
-| `{run_id}.npz` | parameters at the best validation epoch |
-| `summary_rows.csv` | one row per run: optimizer, lr, seed, diverged, best val loss, … |
-| `lr_table.csv` | one row per optimizer × lr: mean/std val loss, diverged and no-better counts |
-| `best_lrs.csv` | each optimizer's best lr: lowest mean val loss among lrs where every seed trained |
-
-With raw features SGD and Momentum diverge at every lr, so they have no best lr there.
-
-### 2. Winners and working learning-rate range
-
-Run `python analyze.py` with `MODE = "sweep"`, once with `STANDARDIZED = True` and once with `False`. It writes `winners.csv` into `logs/sweep_std/` and `logs/sweep_raw/`: each optimizer's best lr, the epoch where it stops improving, and its working range (lrs whose mean val loss is within 10% of the best) as `working_ratio` = largest / smallest working lr.
-
-### 3. Final runs
-
-Set `FINAL_LRS` to the `lr` column of the matching `winners.csv` and run `python lr_sweep.py` with the final settings above, once per feature scale. Fresh seeds (5–9) keep the final numbers independent of the seeds used to pick the lr. The learning rates we used:
-
-| Optimizer | standardized (`logs/final_std/`) | raw (`logs/final_raw/`) |
-|---|---|---|
-| SGD | 0.01 | none: diverged at every lr |
-| Momentum | 0.001 | none: diverged at every lr |
-| Adam | 0.003 | 0.01 |
-| RMSProp | 0.003 | 0.003 |
-| AdaGrad | 0.3 | 0.03 |
-
-Each run takes a few seconds (about 4 s for SGD and 8 s for Adam at 260 epochs), so a full final phase takes a few minutes.
-
-### 4. Metrics
+### E. Raw finals
+Edit constants in lr_sweep.py (refer to table)
+Set FINAL_LRS to winner from C (ours: FINAL_LRS = {"adam": 0.01, "rmsprop": 0.003, "adagrad": 0.03})
 
 ```bash
-python results.py
+python lr_sweep.py
 ```
 
-Reads `logs/final_std/` and writes `results.csv` in the repo root, one row per optimizer (also printed):
-
-| Metric | Columns | How it is computed | Read from |
-|---|---|---|---|
-| Quality | `mean_best_val_loss`, `sd_best_val_loss` | mean and sample SD (n−1) of `best_val_loss` across the 5 seeds | `logs/final_std/summary_rows.csv` |
-| Speed | `steps_to_target`, `seconds_to_target`, `reached` | in each run, the first row with `val_loss` ≤ `SPEED_TARGET` (0.316); its step and time are averaged over the seeds that reached it, and `reached` counts them (e.g. 3/5). "not reached" when no seed does. Accurate to one epoch, since val loss is logged once per epoch | `logs/final_std/{run_id}.csv` |
-| Reliability | `sd_best_val_loss`, `n_diverged`, `working_ratio` | the SD from Quality; diverged runs among the 5; the working-range ratio. Momentum is reported as 3.3× instead of 33×, because a seed diverged at lr 0.003, which lies inside that range | `summary_rows.csv`, `logs/sweep_std/winners.csv` |
-| Cost per step | `median_step_ms`, `cost_vs_sgd` | per run, the median difference between consecutive `time` values, skipping epoch 1 (warm-up); averaged over seeds and divided by SGD's, so SGD = 1.0 | `logs/final_std/{run_id}.csv` |
-
-### 5. Figures
-
+### F. Baselines, test set, results, figures
 ```bash
+python baselines.py
+python final_test.py
+python results.py
 python plots.py
 ```
 
-Saves three PNGs to `figures/`:
-
-- `val_loss_curves.png`: validation loss vs step and vs seconds for the final runs. One line per optimizer (seed mean at its winning lr), a min–max band, y-axis zoomed to 0.26–0.45 so the optimizers separate, a dotted line for the speed target; the linear-regression baseline (0.538) is above that range and given in the caption. Diverged runs are left out of the band and counted in the caption.
-- `lr_sweep.png`: best validation loss vs learning rate (log x and y), one line per optimizer. A gap means a seed diverged at that lr.
-- `feature_scale.png`: mean best validation loss per optimizer with standardized (filled) vs raw (hollow) features. SGD and Momentum have no raw point; they are labeled "diverged at every lr" in the plot and the caption.
-
-Each optimizer keeps the same color in every figure.
-
-Where each figure's data comes from:
-
-| Figure | Data source |
-|---|---|
-| `val_loss_curves.png` | `logs/final_std/summary_rows.csv` gives each optimizer's lr, its `run_id`s and which diverged; each run's training rows `logs/final_std/{run_id}.csv` give the curve (`step`, `time`, `val_loss` at each epoch end) |
-| `lr_sweep.png` | `logs/sweep_std/lr_table.csv` (`optimizer`, `lr`, `mean_val_loss`) |
-| `feature_scale.png` | `logs/final_std/summary_rows.csv` and `logs/final_raw/summary_rows.csv` (`optimizer`, `best_val_loss`) |
-| linear baseline line | not from the logs: `plots.py` loads the dataset with `data.prepare_data` and fits least squares (`baselines.closed_form_linear`) to get its validation MSE |
-
-## Where the data lives
-
-| Path | What it is | Made by |
-|---|---|---|
-| `data/cal_housing_py3.pkz` | the raw California housing dataset (20,640 houses, 8 features, target = median house value in $100k), cached by sklearn | first call to `data.prepare_data` |
-| `logs/pilot_std/` | pilot runs used to pick the 260-epoch budget | `lr_sweep.py` with `PHASE = "pilot"` |
-| `logs/sweep_std/`, `logs/sweep_raw/` | learning-rate sweep logs (files listed in step 1), each with its `winners.csv` | `lr_sweep.py` with `PHASE = "sweep"`, `analyze.py` |
-| `logs/final_std/`, `logs/final_raw/` | final runs at each optimizer's winning lr | `lr_sweep.py` with `PHASE = "final"` |
-| `results.csv` | the four metrics, one row per optimizer | `results.py` |
-| `figures/` | the three PNGs | `plots.py` |
-
-`data/`, `logs/` and `.venv/` are in `.gitignore`, so they are not committed: the logs exist only on the machine that ran the training, and have to be copied over to run `results.py` or `plots.py` elsewhere. The dataset is split 70/15/15 into train/val/test with seed 0 (`data.split_indices`); standardization uses the training split's mean and std only.
+## Notes (see before reproduction)
+1. In step B & C, analyze.py will warn that most winners are still improving. This is expected. SGD and Momentum were improving by 1-2% near the end and others less, so instead of extending runs to hours we gave them the same 260 epoch budget.
+2. Momentum's working range is 3.3x, not the 33x in winners.csv. This is because a seed diverged at lr 0.003, which is between 0.001 and 0.01, so the actual working range is from 0.0003 to 0.001.
