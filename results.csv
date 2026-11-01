@@ -1,0 +1,6 @@
+optimizer,lr,mean_best_val_loss,sd_best_val_loss,steps_to_target,seconds_to_target,reached,n_diverged,working_ratio,median_step_ms,cost_vs_sgd
+sgd,0.01,0.3016,0.0044,29558,1.457,5/5,0,3.3,0.046,1.0
+momentum,0.001,0.296,0.0045,26548,1.471,5/5,0,3.3,0.0525,1.14
+adam,0.003,0.2783,0.0035,6201,0.622,5/5,0,30.0,0.0963,2.09
+rmsprop,0.003,0.2753,0.0065,7104,0.577,5/5,0,10.0,0.0771,1.67
+adagrad,0.3,0.2904,0.0131,14869,1.081,5/5,0,10.0,0.0689,1.5
