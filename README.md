@@ -7,6 +7,7 @@ A NumPy MLP (8 → 16 → 16 → 1, ReLU) trained on California housing with fiv
 ```bash
 python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt
 ```
+Requires Python 3.12 or newer.
 
 The first run downloads the California housing dataset into `data/`. On the python.org build of macOS Python this can fail with `SSL: CERTIFICATE_VERIFY_FAILED`; fix it once with `open "/Applications/Python 3.13/Install Certificates.command"`.
 
