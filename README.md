@@ -9,7 +9,7 @@ python3 -m venv .venv && source .venv/bin/activate && pip install -r requirement
 ```
 Requires Python 3.12 or newer.
 
-The first run downloads the California housing dataset into `data/`. On the python.org build of macOS Python this can fail with `SSL: CERTIFICATE_VERIFY_FAILED`; fix it once with `open "/Applications/Python 3.13/Install Certificates.command"`.
+The first run downloads the California housing dataset into `data/`. 
 
 Optional checks: `pytest` runs the gradient, optimizer, metric and PyTorch-parity tests, and `python baselines.py` prints the mean / linear / sklearn MLP baselines.
 
