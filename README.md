@@ -24,7 +24,7 @@ All 58 tests should pass.
 2. Loss: MSE
 3. Batch size: 48
 4. Split: 70/15/15 = 14,448/3,096/3,096 rows training/validation/test, fixed by seed 0 
-5. Hyperparameters: only learning rate changes, PyTorch defaults for rest
+5. Hyperparameters: only learning rate changes, PyTorch defaults for rest(except for SGD momentum, momentum is set to 0.9 instead of using the default momentum=0)
 6. Learning rates sweeped: 1e-4, 3e-4, 1e-3, 3e-3, 1e-2, 3e-2, 1e-1, 3e-1, 1
 7. Seeds: 0-4 for sweeps, 5-9 for finals
 8. Divergence: Stop run if batch or validation loss is NaN or inf
